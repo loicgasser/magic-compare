@@ -1,4 +1,4 @@
-# -*- utf-8 -*-
+# -*- coding: utf-8 -*-
 
 import re
 import sys
@@ -29,53 +29,7 @@ def find_all_by_class(soup, el_class):
 
 
 # MKM specific methods
-def mkm_booster_name(url, base_path):
-    a, name = url.split(base_path)
-    return name.replace("+", " ").replace("/", " ")
-
-
-def mkm_find_booster_urls(soup):
-    for img in find_all_by_class(soup, "gw_ImageBox"):
-        yield "{0}{1}".format(MKM_BASE_URL, img.find("a").get("href"))
-
-
-def mkm_fetch_index_booster_pages(url, from_page, to_page):
-    param = "resultsPage="
-    for i in range(from_page, to_page):
-        yield parse_html_document(fetch_page("{0}?{1}{2}".format(url, param, i)))
-
-
-
-# We only want english and boosters in Switzerland for now
-def mkm_get_booster_info(soup):
-    table_body = find_unique_element_by_id(soup, "articlesTable")
-    for row in list(table_body.children):
-        # No class on relevant rows
-        if not row.get("class"):
-            seller_country = row.find(
-                attrs={"data-original-title": re.compile("Item location")})
-            if not seller_country or "Switzerland" not in seller_country.get("data-original-title"):
-                continue
-            booster_lang = row.find(attrs={"data-original-title": "English"})
-            if not booster_lang:
-                continue
-            user = row.find(href=re.compile("Users"))
-            user = user.string
-            sys.exit(0)
-
-
-def mkm_fetch_boosters_pages(url, from_page, to_page):
-    for index_page in mkm_fetch_index_booster_pages(url, from_page, to_page):
-        print("Parsing Index Booster Page {}".format(url))
-        for booster_url in mkm_find_booster_urls(index_page):
-            print("Parsing Booster Page for {}".format(
-                mkm_booster_name(booster_url, "{0}{1}".format(
-                    MKM_BASE_URL, MKM_BASE_PATH))))
-            yield parse_html_document(fetch_page(booster_url))
-
-
-def main():
-    url = "{0}{1}".format(MKM_BASE_URL, MKM_BASE_PATH)
+def mkm_first_index_page(url):
     html_doc = fetch_page(url)
     if not html_doc:
         print("Unable to fetch {} base page".format(url))
@@ -86,10 +40,80 @@ def main():
     if not tag or not tag.string.isdigit():
         print("Could not find the number of pages required")
         sys.exit(1)
-    number_of_pages = int(tag.string)
-    # No need to add one because indexing starts at 0
-    for booster_page in mkm_fetch_boosters_pages(url, 1, number_of_pages):
-        mkm_get_booster_info(booster_page)
+    to_page = int(tag.string)
+    return soup, to_page
+
+
+def mkm_booster_name(url, base_path):
+    name = url.split(base_path)
+    return name[1].replace("+", " ").replace("/", "")
+
+
+def mkm_find_booster_urls(soup):
+    for img in find_all_by_class(soup, "gw_ImageBox"):
+        yield "{0}{1}".format(MKM_BASE_URL, img.find("a").get("href"))
+
+
+def mkm_fetch_index_booster_pages(url, from_page):
+    soup, to_page = mkm_first_index_page(url)
+    yield soup
+    param = "resultsPage="
+    for i in range(from_page + 1, to_page):
+        yield parse_html_document(fetch_page("{0}?{1}{2}".format(url, param, i)))
+
+
+def mkm_is_swiss_seller(row):
+    seller_country = row.find(
+        attrs={"data-original-title": re.compile("Item location")})
+    return not seller_country or "Switzerland" not in seller_country.get("data-original-title")
+
+
+def mkm_is_english_card(row):
+    return not row.find(attrs={"data-original-title": "English"})
+
+
+def mkm_get_user(row):
+    user = row.find(href=re.compile("Users"))
+    return user.string
+
+
+def mkm_get_price(row):
+    price = row.find(id=re.compile("price"))
+    m = re.match(r"([0-9]*),([0-9]*)", list(price.children)[0].string)
+    return float("{0}.{1}".format(m.group(1), m.group(2)))
+
+
+# We only want english and boosters in Switzerland for now
+def mkm_get_booster_info(soup):
+    table_body = find_unique_element_by_id(soup, "articlesTable")
+    for row in list(table_body.children):
+        # No class on relevant rows
+        if not row.get("class"):
+            if mkm_is_swiss_seller(row):
+                continue
+            if mkm_is_english_card(row):
+                continue
+            user = mkm_get_user(row)
+            price = mkm_get_price(row)
+            return user, price
+
+
+def mkm_fetch_boosters_pages(url, from_page):
+    for index_page in mkm_fetch_index_booster_pages(url, from_page):
+        print("Parsing Index Booster Page {}".format(url))
+        for booster_url in mkm_find_booster_urls(index_page):
+            print("Parsing Booster Page for {}".format(
+                mkm_booster_name(booster_url, "{0}{1}".format(
+                    MKM_BASE_URL, MKM_BASE_PATH))))
+            yield booster_url, parse_html_document(fetch_page(booster_url))
+
+
+def main():
+    url = "{0}{1}".format(MKM_BASE_URL, MKM_BASE_PATH)
+    for booster_url, booster_soup in mkm_fetch_boosters_pages(url, 0):
+        user, price = mkm_get_booster_info(booster_soup)
+        print("User {0} has a booster at {1} Euros to sell".format(user, price))
+        print("Visit {} to make a purchase".format(booster_url))
     return
 
 
