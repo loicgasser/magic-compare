@@ -3,6 +3,7 @@
 import re
 import sys
 import requests
+from urllib.parse import unquote
 from bs4 import BeautifulSoup
 
 
@@ -46,7 +47,7 @@ def mkm_first_index_page(url):
 
 def mkm_booster_name(url, base_path):
     name = url.split(base_path)
-    return name[1].replace("+", " ").replace("/", "")
+    return unquote(name[1]).replace("+", " ").replace("/", "")
 
 
 def mkm_find_booster_urls(soup):
@@ -96,11 +97,11 @@ def mkm_get_booster_info(soup):
             user = mkm_get_user(row)
             price = mkm_get_price(row)
             return user, price
+    return None, None
 
 
 def mkm_fetch_boosters_pages(url, from_page):
     for index_page in mkm_fetch_index_booster_pages(url, from_page):
-        print("Parsing Index Booster Page {}".format(url))
         for booster_url in mkm_find_booster_urls(index_page):
             print("Parsing Booster Page for {}".format(
                 mkm_booster_name(booster_url, "{0}{1}".format(
@@ -112,8 +113,9 @@ def main():
     url = "{0}{1}".format(MKM_BASE_URL, MKM_BASE_PATH)
     for booster_url, booster_soup in mkm_fetch_boosters_pages(url, 0):
         user, price = mkm_get_booster_info(booster_soup)
-        print("User {0} has a booster at {1} Euros to sell".format(user, price))
-        print("Visit {} to make a purchase".format(booster_url))
+        if user and price:
+            print("User {0} has a booster at {1} Euros to sell".format(user, price))
+            print("Visit {} to make a purchase".format(booster_url))
     return
 
 
